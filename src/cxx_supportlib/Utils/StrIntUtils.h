@@ -1,6 +1,6 @@
 /*
  *  Phusion Passenger - https://www.phusionpassenger.com/
- *  Copyright (c) 2010-2015 Phusion Holding B.V.
+ *  Copyright (c) 2010-2016 Phusion Holding B.V.
  *
  *  "Passenger", "Phusion Passenger" and "Union Station" are registered
  *  trademarks of Phusion Holding B.V.
@@ -469,6 +469,7 @@ char *appendData(char *pos, const char *end, const StaticString &data);
  * e.g. "foo\nbar\0" becomes "foo\\nbar\\0".
  */
 string cEscapeString(const StaticString &input);
+void cEscapeString(const StaticString &input, string &output);
 
 /**
  * Escapes HTML special characters the given input string, which is assumed to

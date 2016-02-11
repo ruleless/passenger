@@ -51,6 +51,10 @@ TEST_CXX_OBJECTS = {
 
   "#{TEST_OUTPUT_DIR}cxx/UstRouter/TransactionTest.o" =>
     "test/cxx/UstRouter/TransactionTest.cpp",
+  "#{TEST_OUTPUT_DIR}cxx/UstRouter/RemoteSink/BatchTest.o" =>
+    "test/cxx/UstRouter/RemoteSink/BatchTest.cpp",
+  "#{TEST_OUTPUT_DIR}cxx/UstRouter/RemoteSink/BatchingAlgorithmTest.o" =>
+    "test/cxx/UstRouter/RemoteSink/BatchingAlgorithmTest.cpp",
 
   "#{TEST_OUTPUT_DIR}cxx/ServerKit/ChannelTest.o" =>
     "test/cxx/ServerKit/ChannelTest.cpp",
