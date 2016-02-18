@@ -23,110 +23,222 @@
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  *  THE SOFTWARE.
  */
-#ifndef _PASSENGER_UST_ROUTER_REMOTE_SENDER_SERVER_H_
-#define _PASSENGER_UST_ROUTER_REMOTE_SENDER_SERVER_H_
+#ifndef _PASSENGER_UST_ROUTER_REMOTE_SINK_SERVER_H_
+#define _PASSENGER_UST_ROUTER_REMOTE_SINK_SERVER_H_
 
-#include <limits.h>
-#include <algorithm>
+#include <boost/thread.hpp>
+#include <boost/shared_ptr.hpp>
+#include <string>
+#include <cassert>
 #include <cstddef>
-#include <boost/cstdint.hpp>
-#include <StaticString.h>
-#include <Utils/StrIntUtils.h>
+
+#include <Logging.h>
+#include <ExponentialMovingAverage.h>
+#include <Utils/JsonUtils.h>
+#include <Utils/SystemTime.h>
 
 namespace Passenger {
 namespace UstRouter {
-namespace RemoteSender {
+namespace RemoteSink {
+
+using namespace std;
 
 
 class Server {
 private:
-	// All strings must be NULL terminated.
-	boost::uint8_t hostHeaderSize, pingUrlSize, sinkUrlSize;
-	char hostHeader[sizeof("Host: gateway.unionstationapp.com") + 32];
-	char pingUrl[sizeof("https://[2001:0db8:85a3:0000:0000:8a2e:0370:7334]:3000/sink") + 16];
-	char sinkUrl[sizeof("https://[2001:0db8:85a3:0000:0000:8a2e:0370:7334]:3000/sink") + 16];
-	unsigned int certificatePathSize;
-	char certificatePath[PATH_MAX + 1];
-	const CurlProxyInfo proxyInfo;
+	const string pingURL, sinkURL;
+	unsigned int number;
+
+	mutable boost::mutex syncher;
+	unsigned int weight;
+	unsigned int nSent, nAccepted, nRejected, nDropped;
+	size_t bytesSent, bytesAccepted, bytesRejected, bytesDropped;
+	unsigned long long lastRequestBeginTime, lastRequestEndTime;
+	unsigned long long lastAcceptTime, lastRejectionErrorTime, lastDropErrorTime;
+	double avgUploadTime, avgUploadSpeed, avgServerProcessingTime;
+	DiscExponentialAverage<700, 5 * 1000000, 10 * 1000000> bandwidthUsage;
+	unsigned long long lastRejectionErrorTime, lastDropErrorTime;
+	string lastRejectionErrorMessage, lastDropErrorMessage;
+	bool up;
+
+	Json::Value inspectBandwidthUsageAsJson() const {
+		if (bandwidthUsage.available()) {
+			Json::Value doc;
+			doc["average"] = byteSpeedToJson(bandwidthUsage.average()
+				* 60 * 1000000, "minute");
+			doc["stddev"] = byteSpeedToJson(bandwidthUsage.stddev()
+				* 60 * 1000000, "minute");
+			return doc;
+		} else {
+			return Json::Value(Json::nullValue);
+		}
+	}
 
 public:
-	Server(const StaticString &ip, unsigned short port,
-		const StaticString &hostName,
-		const StaticString &certificate = StaticString(),
-		const CurlProxyInfo &_proxyInfo = CurlProxyInfo())
-		: proxyInfo(_proxyInfo);
+	Server(const StaticString &baseURL, unsigned int _weight)
+		: pingURL(baseURL + "/ping"),
+		  sinkURL(baseURL + "/sink"),
+		  number(0),
+		  weight(_weight),
+		  nSent(0),
+		  nAccepted(0),
+		  nRejected(0),
+		  nDropped(0),
+		  bytesSent(0),
+		  bytesAccepted(0),
+		  bytesRejected(0),
+		  bytesDropped(0),
+		  lastRequestBeginTime(0),
+		  lastRequestEndTime(0),
+		  lastAcceptTime(0),
+		  lastRejectionErrorTime(0),
+		  lastDropErrorTime(0),
+		  avgUploadTime(-1),
+		  avgUploadSpeed(-1),
+		  avgServerProcessingTime(-1),
+		  lastRejectionErrorTime(0),
+		  lastDropErrorTime(0),
+		  up(true)
 	{
-		char *pos;
-		const char *end;
+		assert(_weight > 0);
+	}
 
-		// Generate host header
-		pos = hostHeader;
-		end = hostHeader + sizeof(hostHeader) - 1;
-		pos = appendData(pos, end, P_STATIC_STRING("Host: "));
-		pos = appendData(pos, end, hostName);
-		*pos = '\0';
+	const string &getPingURL() const {
+		return pingURL;
+	}
 
-		// Generate ping URL and sink URL
-		pos = pingUrl;
-		end = pingUrl + sizeof(pingUrl) - 1;
-		if (looksLikeIPv6(ip)) {
-			pos = appendData(pos, end, P_STATIC_STRING("https://["));
-			pos = appendData(pos, end, ip);
-			pos = appendData(pos, end, P_STATIC_STRING("]"));
-		} else {
-			pos = appendData(pos, end, P_STATIC_STRING("https://"));
-			pos = appendData(pos, end, ip);
+	const string &getSinkURL() const {
+		return sinkURL;
+	}
+
+	unsigned int getWeight() const {
+		boost::lock_guard<boost::mutex> l(syncher);
+		return weight;
+	}
+
+	bool isUp() const {
+		boost::lock_guard<boost::mutex> l(syncher);
+		return up;
+	}
+
+	void setUp(bool _up) {
+		boost::lock_guard<boost::mutex> l(syncher);
+		up = _up;
+	}
+
+	void setNumber(unsigned int n) {
+		number = n;
+	}
+
+	bool equals(const Server &other) const {
+		return pingURL == other.getPingURL()
+			&& sinkURL == other.getSinkURL()
+			&& weight == other.getWeight();
+	}
+
+	void update(const Server &other) {
+		P_ASSERT_EQ(pingURL, other.getPingURL());
+		P_ASSERT_EQ(sinkURL, other.getSinkURL());
+		boost::lock_guard<boost::mutex> l(syncher);
+		weight = other.getWeight();
+		up = other.getUp();
+	}
+
+	void reportRequestBegin() {
+		boost::lock_guard<boost::mutex> l(syncher);
+		nSent++;
+		nActiveRequests++;
+		lastRequestBeginTime = SystemTime::getUsec();
+	}
+
+	void reportRequestAccepted(size_t uploadSize, unsigned long long uploadTime,
+		unsigned long long serverProcessingTime)
+	{
+		boost::lock_guard<boost::mutex> l(syncher);
+		unsigned long long now = SystemTime::getUsec();
+
+		nAccepted++;
+		nActiveRequests--;
+		bytesAccepted += uploadSize;
+		lastRequestEndTime = now;
+		lastAcceptTime = now;
+
+		avgUploadTime = exponentialMovingAverage(avgUploadTime, uploadTime, 0.5);
+		avgUploadSpeed = exponentialMovingAverage(avgUploadSpeed,
+			uploadSize / uploadTime, 0.5);
+		avgServerProcessingTime = exponentialMovingAverage(
+			avgServerProcessingTime, serverProcessingTime, 0.5);
+		bandwidthUsage.update(uploadSize / uploadTime, now);
+	}
+
+	void reportRequestRejected(size_t uploadSize, unsigned long long uploadTime,
+		const string &errorMessage, unsigned long long now = 0)
+	{
+		if (now == 0) {
+			now = SystemTime::getUsec();
 		}
-		pos = appendData(pos, end, P_STATIC_STRING(":"));
-		pos += uintToString(port, pos, end - pos);
 
-		size_t baseUrlSize = pos - pingUrl;
+		boost::lock_guard<boost::mutex> l(syncher);
+		nRejected++;
+		nActiveRequests--;
+		bytesRejected += uploadSize;
+		lastRequestEndTime = lastRejectionErrorTime = now;
+		lastRejectionErrorMessage = errorMessage;
 
-		pos = appendData(pos, end, P_STATIC_STRING("/ping"));
-		*pos = '\0';
-		pingUrlSize = pos - pingUrl;
-
-		pos = sinkUrl;
-		end = sinkUrl + sizeof(sinkUrl) - 1;
-		pos = appendData(pos, end, StaticString(pingUrl, baseUrlSize));
-		pos = appendData(pos, end, P_STATIC_STRING("/sink"));
-		*pos = '\0';
-		sinkUrlSize = pos - sinkUrl;
-
-		// Intern certificate path
-		memcpy(certificatePath, certificate.data(), certificate.size());
-		certificatePathSize = std::min<unsigned int>(PATH_MAX, certificate.size());
-		certificatePath[certificatePathSize] = '\0';
+		avgUploadTime = exponentialMovingAverage(avgUploadTime, uploadTime, 0.5);
+		avgUploadSpeed = exponentialMovingAverage(avgUploadSpeed,
+			uploadSize / uploadTime, 0.5);
+		bandwidthUsage.update(uploadSize / uploadTime, now);
 	}
 
-	// NULL terminated.
-	StaticString getHostHeader() const {
-		return StaticString(hostHeader, hostHeaderSize);
+	void reportRequestDropped(size_t uploadSize, const string &errorMessage) {
+		boost::lock_guard<boost::mutex> l(syncher);
+		up = false;
+		nDropped++;
+		nActiveRequests--;
+		bytesDropped += uploadSize;
+		lastRequestEndTime = lastDropErrorTime = SystemTime::getUsec();
+		lastDropErrorMessage = errorMessage;
 	}
 
-	// NULL terminated.
-	StaticString getPingUrl() const {
-		return StaticString(pingUrl, pingUrlSize);
-	}
+	Json::Value inspectStateAsJson() const {
+		Json::Value doc;
+		boost::lock_guard<boost::mutex> l(syncher);
 
-	// NULL terminated.
-	StaticString getSinkUrl() const {
-		return StaticString(sinkUrl, sinkUrlSize);
-	}
+		doc["number"] = number;
+		doc["ping_url"] = pingURL;
+		doc["sink_url"] = sinkURL;
+		doc["weight"] = weight;
+		doc["sent"] = byteSizeAndCountToJson(bytesSent, nSent);
+		doc["accepted"] = byteSizeAndCountToJson(bytesAccepted, nAccepted);
+		doc["rejected"] = byteSizeAndCountToJson(bytesRejected, nRejected);
+		doc["dropped"] = byteSizeAndCountToJson(bytesDropped, nDropped);
+		doc["average_upload_time"] = durationToJson(avgUploadTime);
+		doc["average_upload_speed"] = byteSpeedToJson(
+			avgUploadSpeed * 1000000.0, "second");
+		doc["average_server_processing_time"] = durationToJson(
+			avgServerProcessingTime);
+		doc["bandwidth_usage"] = inspectBandwidthUsageAsJson();
+		doc["up"] = up;
 
-	// NULL terminated.
-	StaticString getCertificatePath() const {
-		return StaticString(certificatePath, certificatePathSize);
-	}
+		if (!lastRejectionErrorMessage.empty()) {
+			doc["last_rejection_error"] = timeToJson(lastRejectionErrorTime);
+			doc["last_rejection_error"]["message"] = lastRejectionErrorMessage;
+		}
+		if (!lastDropErrorMessage.empty()) {
+			doc["last_drop_error"] = timeToJson(lastDropErrorTime);
+			doc["last_drop_error"]["message"] = lastDropErrorMessage;
+		}
 
-	const CurlProxyInfo &getCurlProxyInfo() const {
-		return proxyInfo;
+		return doc;
 	}
 };
 
+typedef boost::shared_ptr<Server> ServerPtr;
 
-} // namespace RemoteSender
+
+} // namespace RemoteSink
 } // namespace UstRouter
 } // namespace Passenger
 
-#endif /* _PASSENGER_UST_ROUTER_REMOTE_SENDER_SERVER_H_ */
+#endif /* _PASSENGER_UST_ROUTER_REMOTE_SINK_SERVER_H_ */

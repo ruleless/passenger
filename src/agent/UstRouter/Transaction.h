@@ -57,7 +57,7 @@ private:
 	BOOST_MOVABLE_BUT_NOT_COPYABLE(Transaction);
 
 	size_t bodySize;
-	unsigned short groupNameSize, nodeNameSize, filtersSize;
+	unsigned short nodeNameSize, filtersSize;
 	boost::uint8_t txnIdSize, unionStationKeySize, categorySize;
 
 	ev_tstamp createdAt, closedAt;
@@ -84,7 +84,6 @@ public:
 
 	Transaction()
 		: bodySize(0),
-		  groupNameSize(0),
 		  nodeNameSize(0),
 		  filtersSize(0),
 		  txnIdSize(0),
@@ -98,7 +97,7 @@ public:
 		  endOfBatch(false)
 		{ }
 
-	Transaction(const StaticString &txnId, const StaticString &groupName,
+	Transaction(const StaticString &txnId,
 		const StaticString &nodeName, const StaticString &category,
 		const StaticString &unionStationKey, ev_tstamp _createdAt,
 		const StaticString &filters = StaticString(),
@@ -112,7 +111,6 @@ public:
 		  endOfBatch(false)
 	{
 		internString(txnId, &txnIdSize);
-		internString(groupName, &groupNameSize);
 		internString(nodeName, &nodeNameSize);
 		internString(category, &categorySize);
 		internString(unionStationKey, &unionStationKeySize);
@@ -123,7 +121,6 @@ public:
 
 	Transaction(BOOST_RV_REF(Transaction) other)
 		: bodySize(other.bodySize),
-		  groupNameSize(other.groupNameSize),
 		  nodeNameSize(other.nodeNameSize),
 		  filtersSize(other.filtersSize),
 		  txnIdSize(other.txnIdSize),
@@ -138,7 +135,6 @@ public:
 		  storage(boost::move(other.storage))
 	{
 		other.bodySize = 0;
-		other.groupNameSize = 0;
 		other.nodeNameSize = 0;
 		other.filtersSize = 0;
 		other.txnIdSize = 0;
@@ -155,7 +151,6 @@ public:
 	Transaction &operator=(BOOST_RV_REF(Transaction) other) {
 		if (this != &other) {
 			bodySize = other.bodySize;
-			groupNameSize = other.groupNameSize;
 			nodeNameSize = other.nodeNameSize;
 			filtersSize = other.filtersSize;
 			txnIdSize = other.txnIdSize;
@@ -170,7 +165,6 @@ public:
 			storage = boost::move(other.storage);
 
 			other.bodySize = 0;
-			other.groupNameSize = 0;
 			other.nodeNameSize = 0;
 			other.filtersSize = 0;
 			other.txnIdSize = 0;
@@ -194,23 +188,12 @@ public:
 		}
 	}
 
-	StaticString getGroupName() const {
-		if (storage.empty()) {
-			return StaticString();
-		} else {
-			return StaticString(storage.data()
-				+ txnIdSize + 1,
-				groupNameSize);
-		}
-	}
-
 	StaticString getNodeName() const {
 		if (storage.empty()) {
 			return StaticString();
 		} else {
 			return StaticString(storage.data()
-				+ txnIdSize + 1
-				+ groupNameSize + 1,
+				+ txnIdSize + 1,
 				nodeNameSize);
 		}
 	}
@@ -221,7 +204,6 @@ public:
 		} else {
 			return StaticString(storage.data()
 				+ txnIdSize + 1
-				+ groupNameSize + 1
 				+ nodeNameSize + 1,
 				categorySize);
 		}
@@ -233,7 +215,6 @@ public:
 		} else {
 			return StaticString(storage.data()
 				+ txnIdSize + 1
-				+ groupNameSize + 1
 				+ nodeNameSize + 1
 				+ categorySize + 1,
 				unionStationKeySize);
@@ -246,7 +227,6 @@ public:
 		} else {
 			return StaticString(storage.data()
 				+ txnIdSize + 1
-				+ groupNameSize + 1
 				+ nodeNameSize + 1
 				+ categorySize + 1
 				+ unionStationKeySize + 1,
@@ -260,7 +240,6 @@ public:
 		} else {
 			return StaticString(storage.data()
 				+ txnIdSize + 1
-				+ groupNameSize + 1
 				+ nodeNameSize + 1
 				+ categorySize + 1
 				+ unionStationKeySize + 1
@@ -370,7 +349,6 @@ public:
 		Json::Value doc;
 		doc["txn_id"] = getTxnId().toString();
 		doc["created_at"] = timeToJson(createdAt * 1000000.0);
-		doc["group"] = getGroupName().toString();
 		if (closedAt != 0) {
 			doc["closed_at"] = timeToJson(closedAt * 1000000.0);
 		}
@@ -390,7 +368,6 @@ public:
 
 	void inspect(ostream &stream) const {
 		stream << "txnId=" << getTxnId() <<
-			", group=" << getGroupName() <<
 			", category=" << getCategory() <<
 			", key=" << getUnionStationKey();
 	}

@@ -231,6 +231,7 @@ toString(T something) {
 string toString(const vector<string> &vec);
 string toString(const vector<StaticString> &vec);
 
+unsigned long long pointerToULL(void *pointer);
 string pointerToIntString(void *pointer);
 
 /**

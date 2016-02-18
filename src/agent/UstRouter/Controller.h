@@ -351,10 +351,10 @@ private:
 		}
 
 		StaticString txnId     = args[1];
-		StaticString groupName = args[2];
+		// Deprecated argument 2: groupName
 		StaticString nodeName  = args[3];
 		StaticString category  = args[4];
-		StaticString timestamp = args[5];
+		// Deprecated argument 5: timestamp
 		StaticString unionStationKey = args[6];
 		bool         crashProtect    = getBool(args, 7, true);
 		bool         ack             = getBool(args, 8, false);
@@ -422,8 +422,8 @@ private:
 			}
 
 			transaction = new Transaction(
-				txnId, groupName, nodeName, category,
-				unionStationKey, ev_now(getLoop()), filters
+				txnId, nodeName, category, unionStationKey,
+				ev_now(getLoop()), filters
 			);
 			transaction->enableCrashProtect(crashProtect);
 			transactions.set(txnId, transaction);
@@ -508,7 +508,7 @@ private:
 	}
 
 	void processCloseTransactionMessage(Client *client, const vector<StaticString> &args) {
-		StaticString txnId, timestamp;
+		StaticString txnId;
 		bool ack;
 		set<string>::const_iterator s_it;
 		Transaction *transaction;
@@ -520,7 +520,7 @@ private:
 		}
 
 		txnId     = args[1];
-		timestamp = args[2];
+		// Deprecated argument 2: timestamp
 		ack       = getBool(args, 3, false);
 
 		transaction = transactions.get(txnId);

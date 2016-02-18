@@ -133,12 +133,12 @@ public:
 	 */
 	template<typename BatchList>
 	static void createBatchObjectsForUndersizedTransactions(TransactionList &transactions,
-		BatchList &result)
+		BatchList &result, int compressionLevel = Z_DEFAULT_COMPRESSION)
 	{
 		Transaction *firstTxnInBatch = STAILQ_FIRST(&transactions);
 
 		while (firstTxnInBatch != NULL) {
-			result.emplace_back(firstTxnInBatch);
+			result.emplace_back(firstTxnInBatch, compressionLevel);
 			Transaction *firstTxnInNextBatch = freeTransactionsInBatch(firstTxnInBatch);
 			firstTxnInBatch = firstTxnInNextBatch;
 		}
@@ -153,13 +153,13 @@ public:
 	 */
 	template<typename BatchList>
 	static void createBatchObjectsForOversizedTransactions(TransactionList &transactions,
-		BatchList &result)
+		BatchList &result, int compressionLevel = Z_DEFAULT_COMPRESSION)
 	{
 		Transaction *transaction = STAILQ_FIRST(&transactions);
 
 		while (transaction != NULL) {
 			P_ASSERT_EQ(STAILQ_NEXT(transaction, nextInBatch), NULL);
-			result.emplace_back(transaction);
+			result.emplace_back(transaction, compressionLevel);
 
 			Transaction *current = transaction;
 			transaction = STAILQ_NEXT(transaction, next);

@@ -205,6 +205,36 @@ toString(const vector<StaticString> &vec) {
 	return result;
 }
 
+unsigned long long
+pointerToULL(void *pointer) {
+	// Use wierd union construction to avoid compiler warnings.
+	if (sizeof(void *) == sizeof(unsigned int)) {
+		union {
+			void *pointer;
+			unsigned int value;
+		} u;
+		u.pointer = pointer;
+		return u.value;
+	} else if (sizeof(void *) == sizeof(unsigned long)) {
+		union {
+			void *pointer;
+			unsigned long value;
+		} u;
+		u.pointer = pointer;
+		return u.value;
+	} else if (sizeof(void *) == sizeof(unsigned long long)) {
+		union {
+			void *pointer;
+			unsigned long long value;
+		} u;
+		u.pointer = pointer;
+		return u.value;
+	} else {
+		fprintf(stderr, "Pointer size unsupported...\n");
+		abort();
+	}
+}
+
 string
 pointerToIntString(void *pointer) {
 	// Use wierd union construction to avoid compiler warnings.
@@ -212,6 +242,13 @@ pointerToIntString(void *pointer) {
 		union {
 			void *pointer;
 			unsigned int value;
+		} u;
+		u.pointer = pointer;
+		return toString(u.value);
+	} else if (sizeof(void *) == sizeof(unsigned long)) {
+		union {
+			void *pointer;
+			unsigned long value;
 		} u;
 		u.pointer = pointer;
 		return toString(u.value);

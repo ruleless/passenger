@@ -1,6 +1,6 @@
 /*
  *  Phusion Passenger - https://www.phusionpassenger.com/
- *  Copyright (c) 2010-2016 Phusion Holding B.V.
+ *  Copyright (c) 2016 Phusion Holding B.V.
  *
  *  "Passenger", "Phusion Passenger" and "Union Station" are registered
  *  trademarks of Phusion Holding B.V.
@@ -68,7 +68,7 @@ private:
 
 
 	size_t uncompressedSize;
-	int compressLevel;
+	int compressionLevel;
 	boost::container::string data;
 
 	size_t createMetadataAndCalculateArchiveSize(Transaction *firstTxnInBatch) {
@@ -99,12 +99,12 @@ private:
 	}
 
 	void initCompression(z_stream &zlib) {
-		if (compressLevel != Z_NO_COMPRESSION) {
+		if (compressionLevel != Z_NO_COMPRESSION) {
 			zlib.zalloc = Z_NULL;
 			zlib.zfree  = Z_NULL;
 			zlib.opaque = Z_NULL;
 
-			int ret = deflateInit(&zlib, compressLevel);
+			int ret = deflateInit(&zlib, compressionLevel);
 			if (ret != Z_OK) {
 				if (zlib.msg != NULL) {
 					throw RuntimeException(P_STATIC_STRING("Cannot initialize zlib: ") +
@@ -117,14 +117,14 @@ private:
 	}
 
 	void finishCompression(z_stream &zlib) {
-		if (compressLevel != Z_NO_COMPRESSION) {
+		if (compressionLevel != Z_NO_COMPRESSION) {
 			appendBinary(zlib, StaticString(), Z_FINISH);
 			deflateEnd(&zlib);
 		}
 	}
 
 	void appendBinary(z_stream &zlib, const StaticString &data, int flush = Z_NO_FLUSH) {
-		if (compressLevel == Z_NO_COMPRESSION) {
+		if (compressionLevel == Z_NO_COMPRESSION) {
 			this->data.append(data.data(), data.size());
 		} else {
 			compressAndAppendBinary(zlib, data, flush);
@@ -184,8 +184,8 @@ private:
 	}
 
 public:
-	Batch(Transaction *firstTxnInBatch, int _compressLevel = Z_DEFAULT_COMPRESSION)
-		: compressLevel(_compressLevel)
+	Batch(Transaction *firstTxnInBatch, int _compressionLevel = Z_DEFAULT_COMPRESSION)
+		: compressionLevel(_compressionLevel)
 	{
 		z_stream zlib;
 
@@ -197,20 +197,20 @@ public:
 
 	Batch(BOOST_RV_REF(Batch) other)
 		: uncompressedSize(other.uncompressedSize),
-		  compressLevel(other.compressLevel),
+		  compressionLevel(other.compressionLevel),
 		  data(boost::move(other.data))
 	{
 		other.uncompressedSize = 0;
-		other.compressLevel = Z_DEFAULT_COMPRESSION;
+		other.compressionLevel = Z_DEFAULT_COMPRESSION;
 	}
 
 	Batch &operator=(BOOST_RV_REF(Batch) other) {
 		if (this != &other) {
 			uncompressedSize = other.uncompressedSize;
-			compressLevel = other.compressLevel;
+			compressionLevel = other.compressionLevel;
 			data = boost::move(other.data);
 			other.uncompressedSize = 0;
-			other.compressLevel = Z_DEFAULT_COMPRESSION;
+			other.compressionLevel = Z_DEFAULT_COMPRESSION;
 		}
 		return *this;
 	}
@@ -224,7 +224,7 @@ public:
 	}
 
 	bool isCompressed() const {
-		return compressLevel != Z_NO_COMPRESSION;
+		return compressionLevel != Z_NO_COMPRESSION;
 	}
 
 	size_t getUncompressedSize() const {
