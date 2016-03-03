@@ -40,91 +40,88 @@ using namespace std;
 using namespace boost;
 
 
+template<typename ServerGroup>
 class ServerDatabase {
-public:
-	class Observer {
-		virtual ~Observer() { }
-		virtual serverDefinitionCheckedOut(const vector< pair<ServerDefinitionPtr *, void *> > &result) = 0;
-	};
-
+private:
 	struct KeyInfo {
-		string groupId;
+		Group *group;
 		unsigned long long lastCheckTime;
 		unsigned long long lastRejectionErrorTime;
 		unsigned long long recheckTimeoutWhenAllHealthy;
 		unsigned long long recheckTimeoutWhenHaveErrors;
-		bool allServersHealthy;
 
 		KeyInfo()
 			: lastCheckTime(0),
 			  lastRejectionErrorTime(0),
 			  recheckTimeoutWhenAllHealthy(5 * 60 * 1000000),
-			  recheckTimeoutWhenHaveErrors(60 * 1000000),
-			  allServersHealthy(true)
-			{ }
-	};
-
-private:
-	typedef boost::container::small_vector<4, ServerPtr> SmallServerList;
-	typedef vector<ServerPtr> ServerList;
-
-	struct Group {
-		SmallServerList servers;
-		SmallServerList balancingList;
-		bool allHealthy;
-
-		Group()
-			: allHealthy(true)
+			  recheckTimeoutWhenHaveErrors(60 * 1000000)
 			{ }
 	};
 
 	boost::mutex syncher;
+	StringKeyTable<ServerGroup> groups;
 	StringKeyTable<KeyInfo> keys;
-	StringKeyTable<Group> groups;
-	StringKeyTable<bool> queue;
+	Group unknownGroup;
 
 public:
-	template<typename Container>
-	bool groupKeys(StaticString keys, Container &groupIds) {
+	/*
+	void setGroupedKeys(const vector< vector<string> > &groupedKeys, Migrator &migrator) {
+		StringKeyTable<Group> newGroups;
+		StringKeyTable<KeyMappingEntry> newKeyMapping;
+		vector<string> groupNames;
+		vector< vector<string> >::const_iterator g_it, g_end = groupedKeys.end();
+		StringKeyTable<Group>::Cell *cell;
+		unsigned int i;
+
+		// Populate 'newGroups' with Group objects
+		for (g_it = groupedKeys.begin(); g_it != g_end; g_it++) {
+			string groupName = createGroupName(*g_it);
+			groupNames.push_back(groupName);
+			newGroups.insert(groupName, Group());
+		}
+
+		// Populate 'newKeyMapping'
+		for (i = 0, g_it = groupedKeys.begin(); g_it != g_end; i++, g_it++) {
+			const string &groupName = groupNames[i];
+			const vector<string> &keys = *g_it;
+			vector<string>::const_iterator k_it, k_end = keys.end();
+
+			for (k_it = keys.begin(); k_it != k_end; k_it++) {
+				StringKeyTable<Group>::Iterator newGroupIterator(
+					newGroups.lookupCell(groupName));
+				newKeyMapping.insert(key, KeyMappingEntry(newGroupIterator.getKey(),
+					&newGroupIterator.getValue()));
+			}
+		}
+
+		// Migrate transactions to the new groups using the new
+		// key mapping
+		StringKeyTable<Group>::Iterator it(groups);
+		while (*it != NULL) {
+			Group &group = it.getValue();
+			migrator.migrateGroup(group, newKeyMapping);
+			assert(group.empty());
+			// for (transaction in group.queue) {
+			// 	KeyMappingEntry entry = newKeyMapping[transaction->getUnionStationKey()];
+			// 	move transaction to entry.group.queue;
+			// }
+			it.next();
+		}
+
+		// May not migrate over everything.
+		migrator.migrateGroup(unknownGroup, newKeyMapping);
+
+		groups = boost::move(newGroups);
+		keyMapping = boost::move(newKeyMapping);
+	}
+	*/
+
+	ServerGroup *group(Transaction *transaction) {
 
 	}
 
-	bool getGroupIdsForKeys(const HashedStaticString keys[], unsigned int count,
-		GetGroupIdsForKeysCallback callback, void *userData)
-	{
-		boost::lock_guard<boost::mutex> l(syncher);
-		for (unsigned int i = 0; i < count; i++) {
-			KeyInfo *keyInfo;
+	ServerPtr getNextUpServer(const Batch &batch) {
 
-			if (keys.lookup(key, &keyInfo)) {
-				groupIds.push_back(keyInfo->groupId);
-			} else {
-				break;
-			}
-		}
-		if (groupIds.size() == count) {
-			return true;
-		} else {
-			for (unsigned int = 0; i < count; i++) {
-				queuedGroupIdToKeyLookups.insert(keys[i], true, false);
-			}
-			queuedGroupIdToKeyLookupCallbacks.push_back(keys);
-			wakeupEventLoop();
-			return false;
-		}
-	}
-
-	ServerPtr getNextUpServer(const StaticString &groupId) {
-		boost::lock_guard<boost::mutex> l(syncher);
-		KeyInfo *keyInfo;
-
-		if (keys.lookup(key, &keyInfo)) {
-			return checkoutFromGroup(keyInfo->groupId);
-		} else {
-			queue.insert(key, true, false);
-			wakeupEventLoop();
-			return CheckoutResult(true, ServerPtr());
-		}
 	}
 
 	void reportRequestRejected(const HashedStaticString &key, size_t uploadSize,

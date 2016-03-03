@@ -38,12 +38,12 @@
 
 #include <Logging.h>
 #include <DataStructures/StringKeyTable.h>
+#include <Algorithms/MovingAverage.h>
 #include <Utils/StrIntUtils.h>
 #include <Utils/JsonUtils.h>
 #include <Utils/SystemTime.h>
 #include <Utils/VariantMap.h>
 #include <UstRouter/Transaction.h>
-#include <UstRouter/RemoteSink/Statistics.h>
 #include <UstRouter/RemoteSink/Batch.h>
 #include <UstRouter/RemoteSink/BatchingAlgorithm.h>
 
@@ -85,6 +85,8 @@ private:
 		{
 			STAILQ_INIT(&queue);
 		}
+
+		void
 	};
 
 	oxt::thread *thread;
@@ -319,27 +321,19 @@ public:
 	void add(TransactionList &transactions, size_t totalBodySize, unsigned int count,
 		size_t &bytesAdded, unsigned int &nAdded, ev_tstamp now)
 	{
-		unsigned int i = 0;
-		bool unknownGroupEncountered = false;
-		StringKeyTable<string> unknownKeys(0, 0);
 		boost::lock_guard<boost::mutex> l(syncher);
 
 		bytesAdded = 0;
 		nAdded = 0;
 		peakSize = std::max(peakSize, totalBytesQueued + totalBytesProcessing + totalBodySize);
 
-		while (i < count && totalBytesQueued + totalBytesProcessing <= limit) {
+		while (nAdded < count && totalBytesQueued + totalBytesProcessing <= limit) {
 			assert(!STAILQ_EMPTY(&transactions));
 			Transaction *transaction = STAILQ_FIRST(&transactions);
 			size_t size = transaction->getBody().size();
 			STAILQ_REMOVE_HEAD(&transactions, next);
 
-			Group *group;
-			if (!groups.lookup(transaction->getUnionStationKey(), &group)) {
-				group = &unknownGroup;
-				unknownGroupEncountered = true;
-			}
-
+			Group *group = grouper.group(transaction);
 			STAILQ_INSERT_TAIL(&group->queued, transaction, next);
 			group->bytesAdded += size;
 			group->bytesQueued += size;
@@ -348,18 +342,15 @@ public:
 			totalBytesAdded += size;
 			totalBytesQueued += size;
 
-			i++;
+			bytesAdded += size;
+			nAdded++;
 		}
 
-		if (unknownGroupEncountered) {
-			serverDatabaseUpdater->requestGroupIds();
-		}
-
-		if (i != count) {
-			assert(bytesQueued + bytesProcessing > limit);
-			assert(totalBodySize >= bytesAdded);
+		if (nAdded != count) {
+			assert(totalBytesQueued + totalBytesProcessing > limit);
+			assert(totalBodySize > bytesAdded);
 			bytesDropped += totalBodySize - bytesAdded;
-			nDropped += count - i;
+			nDropped += count - nAdded;
 
 			if (compressionLevel > 3) {
 				P_WARN("Unable to batch and compress Union Station data quickly enough. "
@@ -375,7 +366,13 @@ public:
 			}
 		}
 
+		pass unknown keys to server database updater;
+
 		cond.notify_one();
+	}
+
+	void onServerDatabaseUpdate(const vector< vector<string> > &groupedKeys) {
+
 	}
 
 	void setThreshold(size_t newThreshold) {
