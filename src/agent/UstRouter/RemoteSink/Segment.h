@@ -1,5 +1,10 @@
-class ServerGroup {
+class Segment {
 public:
+	struct SegmenterFields {
+		bool toBeForwarded;
+		STAILQ_ENTRY(Segment) nextToBeForwarded;
+	};
+
 	struct BatcherFields {
 		TransactionList queue;
 		size_t bytesAdded;
@@ -22,7 +27,7 @@ public:
 		bool allHealthy;
 	};
 
+	SegmenterFields segmenterFields;
 	BatcherFields batcherFields;
-	char avoidFalseSharing __attribute__((aligned(64)));
 	SenderFields senderFields;
 };
