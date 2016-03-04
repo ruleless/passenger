@@ -30,7 +30,7 @@
 #include <vector>
 
 #include <DataStructures/StringKeyTable.h>
-#include <UstRouter/RemoteSink/Server.h>
+#include <UstRouter/RemoteSink/ServerGroup.h>
 
 namespace Passenger {
 namespace UstRouter {
@@ -40,9 +40,8 @@ using namespace std;
 using namespace boost;
 
 
-template<typename ServerGroup>
 class ServerDatabase {
-private:
+public:
 	struct KeyInfo {
 		Group *group;
 		unsigned long long lastCheckTime;
@@ -51,14 +50,15 @@ private:
 		unsigned long long recheckTimeoutWhenHaveErrors;
 
 		KeyInfo()
-			: lastCheckTime(0),
+			: group(NULL),
+			  lastCheckTime(0),
 			  lastRejectionErrorTime(0),
 			  recheckTimeoutWhenAllHealthy(5 * 60 * 1000000),
 			  recheckTimeoutWhenHaveErrors(60 * 1000000)
 			{ }
 	};
 
-	boost::mutex syncher;
+private:
 	StringKeyTable<ServerGroup> groups;
 	StringKeyTable<KeyInfo> keys;
 	Group unknownGroup;
@@ -116,34 +116,19 @@ public:
 	}
 	*/
 
-	ServerGroup *group(Transaction *transaction) {
-
-	}
-
-	ServerPtr getNextUpServer(const Batch &batch) {
-
-	}
-
-	void reportRequestRejected(const HashedStaticString &key, size_t uploadSize,
-		unsigned long long uploadTime, const string &errorMessage)
-	{
-		boost::lock_guard<boost::mutex> l(syncher);
+	KeyInfo *getKeyInfo(const HashedStaticString &key) {
 		KeyInfo *keyInfo;
 
 		if (keys.lookup(key, &keyInfo)) {
-			unsigned long long now = SystemTime::getUsec();
-			keyInfo->lastRejectionErrorTime = now;
-			server->reportRequestRejected(uploadSize, uploadTime, errorMessage, now);
-			recreateBalancingList();
+			return keyInfo;
+		} else {
+			return &keys.insert(key, KeyInfo()).getValue();
 		}
 	}
 
-	void reportRequestDropped(const ServerPtr &server, size_t uploadSize,
-		const string &errorMessage)
-	{
-		server->reportRequestDropped(uploadSize, errorMessage);
-		boost::lock_guard<boost::mutex> l(syncher);
-		recreateBalancingList();
+	ServerGroup *groupKey(Transaction *transaction) {
+		KeyInfo *keyInfo = getKeyInfo(transaction->getUnionStationKey());
+		return keyInfo->group;
 	}
 };
 

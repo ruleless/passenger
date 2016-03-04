@@ -62,32 +62,6 @@ public:
 	typedef boost::container::small_vector<Batch, 16> BatchList;
 
 private:
-	struct Group {
-		TransactionList queue;
-		size_t bytesAdded;
-		size_t bytesQueued;
-		size_t bytesProcessing;
-		unsigned long long lastQueueAddTime;
-		unsigned long long lastProcessingBeginTime;
-		unsigned long long lastProcessingEndTime;
-		unsigned int nQueued;
-		unsigned int nProcessing;
-
-		Group()
-			: bytesAdded(0),
-			  bytesQueued(0),
-			  bytesProcessing(0),
-			  lastQueueAddTime(0),
-			  lastProcessingBeginTime(0),
-			  lastProcessingEndTime(0),
-			  nQueued(0),
-			  nProcessing(0)
-		{
-			STAILQ_INIT(&queue);
-		}
-
-		void
-	};
 
 	oxt::thread *thread;
 	Sender *sender;
