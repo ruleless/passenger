@@ -27,9 +27,12 @@
 #define _PASSENGER_UST_ROUTER_REMOTE_SINK_SEGMENT_H_
 
 #include <boost/container/small_vector.hpp>
+#include <boost/intrusive_ptr.hpp>
 #include <cstddef>
+#include <cassert>
 #include <psg_sysqueue.h>
 #include <UstRouter/Transaction.h>
+#include <UstRouter/RemoteSink/Server.h>
 
 namespace Passenger {
 namespace UstRouter {
@@ -39,7 +42,12 @@ using namespace std;
 
 
 struct Segment {
-	typedef boost::container::small_vector<4, ServerPtr> SmallServerList;
+	typedef boost::container::small_vector<ServerPtr, 4> SmallServerList;
+
+	/****** General fields ******/
+
+	mutable unsigned int refcount;
+
 
 	/****** Fields used by Segmenter ******/
 
@@ -84,7 +92,41 @@ struct Segment {
 	SmallServerList balancingList;
 	unsigned int nextServer;
 	bool allHealthy;
+
+
+	/****** Methods ******/
+
+	Segment(const string &_segmentKey)
+		: refcount(1),
+		  segmentKey(_segmentKey)
+		{ }
+
+	void ref() const {
+		refcount++;
+	}
+
+	void unref() const {
+		assert(refcount > 0);
+		refcount--;
+		if (refcount == 0) {
+			delete this;
+		}
+	}
 };
+
+STAILQ_HEAD(SegmentList, Segment);
+typedef boost::intrusive_ptr<Segment> SegmentPtr;
+
+
+inline void
+intrusive_ptr_add_ref(const Segment *segment) {
+	segment->ref();
+}
+
+inline void
+intrusive_ptr_release(const Segment *segment) {
+	segment->unref();
+}
 
 
 } // namespace RemoteSink

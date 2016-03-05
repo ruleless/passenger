@@ -33,7 +33,7 @@
 #include <cstddef>
 
 #include <Logging.h>
-#include <ExponentialMovingAverage.h>
+#include <Algorithms/MovingAverage.h>
 #include <Utils/JsonUtils.h>
 #include <Utils/SystemTime.h>
 
@@ -51,13 +51,12 @@ private:
 
 	mutable boost::mutex syncher;
 	unsigned int weight;
-	unsigned int nSent, nAccepted, nRejected, nDropped;
+	unsigned int nSent, nAccepted, nRejected, nDropped, nActiveRequests;
 	size_t bytesSent, bytesAccepted, bytesRejected, bytesDropped;
 	unsigned long long lastRequestBeginTime, lastRequestEndTime;
 	unsigned long long lastAcceptTime, lastRejectionErrorTime, lastDropErrorTime;
 	double avgUploadTime, avgUploadSpeed, avgServerProcessingTime;
-	DiscExponentialAverage<700, 5 * 1000000, 10 * 1000000> bandwidthUsage;
-	unsigned long long lastRejectionErrorTime, lastDropErrorTime;
+	DiscExpMovingAverageWithStddev<700, 5 * 1000000, 10 * 1000000> bandwidthUsage;
 	string lastRejectionErrorMessage, lastDropErrorMessage;
 	bool up;
 
@@ -84,6 +83,7 @@ public:
 		  nAccepted(0),
 		  nRejected(0),
 		  nDropped(0),
+		  nActiveRequests(0),
 		  bytesSent(0),
 		  bytesAccepted(0),
 		  bytesRejected(0),
@@ -96,8 +96,6 @@ public:
 		  avgUploadTime(-1),
 		  avgUploadSpeed(-1),
 		  avgServerProcessingTime(-1),
-		  lastRejectionErrorTime(0),
-		  lastDropErrorTime(0),
 		  up(true)
 	{
 		assert(_weight > 0);
@@ -141,7 +139,7 @@ public:
 		P_ASSERT_EQ(sinkURL, other.getSinkURL());
 		boost::lock_guard<boost::mutex> l(syncher);
 		weight = other.getWeight();
-		up = other.getUp();
+		up = other.isUp();
 	}
 
 	void reportRequestBegin() {
@@ -163,10 +161,10 @@ public:
 		lastRequestEndTime = now;
 		lastAcceptTime = now;
 
-		avgUploadTime = exponentialMovingAverage(avgUploadTime, uploadTime, 0.5);
-		avgUploadSpeed = exponentialMovingAverage(avgUploadSpeed,
+		avgUploadTime = expMovingAverage(avgUploadTime, uploadTime, 0.5);
+		avgUploadSpeed = expMovingAverage(avgUploadSpeed,
 			uploadSize / uploadTime, 0.5);
-		avgServerProcessingTime = exponentialMovingAverage(
+		avgServerProcessingTime = expMovingAverage(
 			avgServerProcessingTime, serverProcessingTime, 0.5);
 		bandwidthUsage.update(uploadSize / uploadTime, now);
 	}
@@ -185,8 +183,8 @@ public:
 		lastRequestEndTime = lastRejectionErrorTime = now;
 		lastRejectionErrorMessage = errorMessage;
 
-		avgUploadTime = exponentialMovingAverage(avgUploadTime, uploadTime, 0.5);
-		avgUploadSpeed = exponentialMovingAverage(avgUploadSpeed,
+		avgUploadTime = expMovingAverage(avgUploadTime, uploadTime, 0.5);
+		avgUploadSpeed = expMovingAverage(avgUploadSpeed,
 			uploadSize / uploadTime, 0.5);
 		bandwidthUsage.update(uploadSize / uploadTime, now);
 	}
